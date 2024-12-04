@@ -1,3 +1,4 @@
+#!/bin/sh
 
 if [ -z $1 ] || [ -z $2 ]
 then
@@ -5,13 +6,13 @@ then
     exit 1
 fi
 
-filesdir=$(pwd)/$1
+filesdir=$1
 searchstr=$2
 
 if [ ! -d $filesdir ]
 then
     echo $filesdir" is not a directory or don't exist"
-    exit 1
+    exit 2
 fi
 
 totalFilesCount=$(ls $filesdir | wc -l)
