@@ -1,4 +1,13 @@
 #include "systemcalls.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <errno.h>
+#include <string.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#include <fcntl.h>
 
 /**
  * @param cmd the command to execute with system()
@@ -16,8 +25,38 @@ bool do_system(const char *cmd)
  *   and return a boolean true if the system() call completed with success
  *   or false() if it returned a failure
 */
+    if(NULL == cmd)
+    {
+    	fprintf(stderr, "Can not execute command. Command string is NULL\n");
+        return false;
+    }
 
-    return true;
+    const int result = system(cmd);
+
+    int error = 0;
+
+    if( -1 == result )
+    {
+        error = errno;
+        perror("Can not create child process or its status could not be retrieved");
+        fprintf(stderr, "Error:%d %s\n", error, strerror(error));
+        return false;
+    }
+
+    if( 127 == result )
+    {
+        error = errno;
+        perror("Can not execute shell in the child process");
+        fprintf(stderr, "Error:%d %s\n", error, strerror(error));
+    }
+
+    if( result != 0)
+    {
+        perror("Process end with error termination status");
+        fprintf(stderr, "Termination status:%d", result);
+    }
+
+    return result == 0;
 }
 
 /**
@@ -58,10 +97,76 @@ bool do_exec(int count, ...)
  *   as second argument to the execv() command.
  *
 */
-
     va_end(args);
 
-    return true;
+    fflush(stdout);
+
+    int error = 0;
+    pid_t wait_result = 0;
+    pid_t pid = fork();
+
+    if(-1 == pid)
+    {
+        error = errno;
+        perror("Can not create child process");
+        fprintf(stderr, "Error: %d %s\n", error, strerror(error));
+        return false;
+    }
+
+    if (0 == pid)
+    {
+        //child process
+        int result = 0;
+        int child_process_error = 0;
+
+        result = execv(command[0], command);
+
+        if(-1 == result)
+        {
+            child_process_error = errno;
+            perror("Can not execute command in the child process");
+            fprintf(stderr, "Result:%d Error: %d %s\n", result, child_process_error, strerror(child_process_error));
+            exit(1);
+        }
+    }
+    else
+    {
+        //parent process
+        int wstatus = 0;
+        wait_result = waitpid(pid, &wstatus, 0);
+
+        if( -1 == wait_result)
+        {
+            error = errno;
+            perror("Can not wait child process");
+            fprintf(stderr, "Error: %d %s\n", error, strerror(error));
+            return false;
+        }
+
+        if(WIFSIGNALED(wstatus))
+        {
+            fprintf(stderr, "Child process killed by signal:%d\n", WTERMSIG(wstatus));
+            return false;
+        }
+
+        if(WIFSTOPPED(wstatus))
+        {
+            fprintf(stderr, "Child process stopped by signal:%d\n", WSTOPSIG(wstatus));
+            return false;
+        }
+
+        if(WIFEXITED(wstatus) && 0 == WEXITSTATUS(wstatus))
+        {
+            return true;
+        }
+        else
+        {
+            fprintf(stderr, "do_exec error -> return false. Child process termination error code:%d\n", WEXITSTATUS(wstatus));
+            return false;
+        }
+    }
+
+    return false;
 }
 
 /**
@@ -95,5 +200,101 @@ bool do_exec_redirect(const char *outputfile, int count, ...)
 
     va_end(args);
 
-    return true;
+    int error = 0;
+    pid_t wait_result = 0;
+
+    if (NULL == outputfile)
+    {
+		fprintf(stderr, "Can not create file for redirection.Filemane string is NULL\n");
+        return false;
+    }
+
+    int fd = open(outputfile, O_CREAT | O_WRONLY | O_TRUNC, 0644);
+
+    if (fd < 0)
+    {
+		error = errno;
+        perror("open file failed");
+		fprintf(stderr, "Can not open file [%s]. Error:%d %s\n",outputfile, error, strerror(error));
+        return false;
+    }
+
+    fflush(stdout);
+
+    pid_t pid = fork();
+
+    if(-1 == pid)
+    {
+        error = errno;
+        perror("Can not create child process");
+        fprintf(stderr, "Error: %d %s\n", error, strerror(error));
+        return false;
+    }
+
+    if (0 == pid)
+    {
+        //child process
+        int result = 0;
+        int child_process_error = 0;
+
+        if(dup2(fd, 1) < 0 )
+        {
+	    	error = errno;
+            perror("Can not duplicate fd to output fd");
+	    	fprintf(stderr, "Can not redirect command output to the file %s. Error:%d %s\n", outputfile, error, strerror(error));
+            exit(1);
+        }
+
+        close(fd);
+
+        result = execv(command[0], command);
+
+        if(-1 == result)
+        {
+            child_process_error = errno;
+            perror("Can not execute command in the child process");
+            fprintf(stderr, "Result:%d Error: %d %s\n", result, child_process_error, strerror(child_process_error));
+            exit(1);
+        }
+    }
+    else
+    {
+        //parent process
+        int wstatus = 0;
+        wait_result = waitpid(pid, &wstatus, 0);
+
+        close(fd);
+
+        if(-1 == wait_result)
+        {
+            error = errno;
+            perror("Can not wait child process");
+            fprintf(stderr, "Error: %d %s\n", error, strerror(error));
+            return false;
+        }
+
+        if(WIFSIGNALED(wstatus))
+        {
+            fprintf(stderr, "Child process killed by signal:%d\n", WTERMSIG(wstatus));
+            return false;
+        }
+
+        if(WIFSTOPPED(wstatus))
+        {
+            fprintf(stderr, "Child process stopped by signal:%d\n", WSTOPSIG(wstatus));
+            return false;
+        }
+
+        if(WIFEXITED(wstatus) && 0 == WEXITSTATUS(wstatus))
+        {
+            return true;
+        }
+        else
+        {
+            fprintf(stderr, "do_exec error -> return false. Child process termination error code:%d\n", WEXITSTATUS(wstatus));
+            return false;
+        }
+    }
+
+    return false;
 }
