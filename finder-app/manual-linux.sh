@@ -93,14 +93,17 @@ echo "Tool chain base dir:${toolchainBaseDir}"
 libraries=$(${CROSS_COMPILE}readelf -a bin/busybox | grep "Shared library" | grep -oE [0-9a-zA-Z_]+.so.?[0-9]*)
 
 #determine bitness of the builded busybox
-bitness=$(file bin/busybox | grep -o [0-9][0-9]-bit)
+#There is no file command in the test container so I have decided to harcode bitness
+#bitness=$(file bin/busybox | grep -o [0-9][0-9]-bit)
 
 #chose right dir for libraries
-libdir="lib"
-if [ $bitness='64-bit' ]
-then
-    libdir="lib64"
-fi
+libdir="lib64"
+
+#Harcoded bitness logic
+#if [ $bitness='64-bit' ]
+#then
+#    libdir="lib64"
+#fi
 
 #Add library dependencies to rootfs
 find -L $toolchainBaseDir -name "$programInterpreter" | xargs -t --replace cp {} "${OUTDIR}/rootfs/lib" # we must copy interpreter shared library into lib dir in any case ...
