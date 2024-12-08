@@ -219,6 +219,7 @@ bool do_exec_redirect(const char *outputfile, int count, ...)
         return false;
     }
 
+
     fflush(stdout);
 
     pid_t pid = fork();

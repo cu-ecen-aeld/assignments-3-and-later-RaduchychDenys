@@ -58,6 +58,12 @@ mkdir -p bin dev etc home lib lib64 proc sbin sys tmp usr var
 mkdir -p usr/bin usr/lib usr/sbin
 mkdir -p var/log
 
+mkdir "${OUTDIR}/rootfs"
+cd "${OUTDIR}/rootfs"
+mkdir -p bin dev etc home lib lib64 proc sbin sys tmp usr var
+mkdir -p usr/bin usr/lib usr/sbin
+mkdir -p var/log
+
 cd "$OUTDIR"
 if [ ! -d "${OUTDIR}/busybox" ]
 then
@@ -120,6 +126,7 @@ sudo chown -R root:root *
 
 # Clean and build the writer utility
 cd $FINDER_APP_DIR
+
 make clean
 make all CROSS_COMPILE=${CROSS_COMPILE}
 

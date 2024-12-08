@@ -40,6 +40,7 @@ int main(int argc, char ** argv )
         error = errno;
         syslog(LOG_ERR, "Can not open file [%s] for writing. Error: %d %s", filePath, error, strerror(error));
         return FILE_OPENING_ERROR;
+
     }
 
     ssize_t wb = write(file, data, dataLen);
