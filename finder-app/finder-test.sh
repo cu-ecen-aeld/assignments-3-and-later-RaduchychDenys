@@ -50,6 +50,7 @@ then
 fi
 
 if [ $assignment = 'assignment3' ]
+then
 #Build the writer app only for assignment3. It is needed because we have built it using buildroot and added to the bin directory
 echo "Removing the old writer utility and compiling as a native application"
 make clean
