@@ -48,9 +48,13 @@ then
 		exit 1
 	fi
 fi
+
+if [ $assignment = 'assignment3' ]
+#Build the writer app only for assignment3. It is needed because we have built it using buildroot and added to the bin directory
 echo "Removing the old writer utility and compiling as a native application"
 make clean
 make
+fi
 
 for i in $( seq 1 $NUMFILES)
 do
