@@ -255,7 +255,7 @@ int init_base_socket()
         exit(GENERAL_ERROR);
     }
 
-    /*
+
     //Set socket options
     const int enable = 1;
     if ( setsockopt(baseSocket, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(int)) < 0 ||
@@ -265,8 +265,8 @@ int init_base_socket()
         syslog(LOG_ERR, "Can not set socket options. Error:%d %s\n", error, strerror(error));
         exit(GENERAL_ERROR);
     }
-    */
-    
+
+
     memset(&hints, 0x00, sizeof(struct addrinfo));
 
     hints.ai_flags = AI_PASSIVE;
@@ -283,6 +283,7 @@ int init_base_socket()
     {
         error = errno;
         syslog(LOG_ERR, "Can not bind socket. Error:%d %s\n", error, strerror(error));
+        freeaddrinfo(res);
         exit(GENERAL_ERROR);
     }
 
