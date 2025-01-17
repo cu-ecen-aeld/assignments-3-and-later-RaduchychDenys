@@ -29,6 +29,7 @@
     // When in daemon mode the program should fork after ensuring it can bind to port 9000.  | Done
 
 #define GENERAL_ERROR 1
+#define SIGNAL_EXIT_ERROR  2
 
 const char* logFilePath = "/var/tmp/aesdsocketdata";
 
@@ -42,17 +43,49 @@ typedef enum _clientStatus
     COUNT_STATUS
 }clientStatus;
 
-sigset_t g_SignalsMask;
-
 //Global program state
+
+sigset_t g_SignalsMask;
 
 int g_SignalNum = 0;
 int g_BaseSocket = -1;
 char* g_Buffer = NULL;
 
+pid_t g_ParentId = 0;
+int g_ParentExitCode = 0;
+
+void send_exit_signal_to_parent(int status)
+{
+    if(g_ParentId && getpid() != g_ParentId)
+    {
+        union sigval sigdata;
+        sigdata.sival_int = status;
+        if (sigqueue(g_ParentId, SIGQUIT, sigdata) != 0 )
+        {
+            syslog(LOG_ERR, "Can not send exit signal to the parent with exit status. Error:%d %s", errno, strerror(errno));
+            if (kill(g_ParentId, SIGKILL) != 0 )
+            {
+                syslog(LOG_ERR, "Can not send kill signal to the parent process. Error:%d %s", errno, strerror(errno));
+            }
+        }
+    }
+}
+
 void handle_signal(const int signalNum)
 {
     g_SignalNum = signalNum;
+}
+
+void handle_quit_signal_from_child(int signum, siginfo_t* info, void* data)
+{
+    //Exit from the process with the given return code that located in the data variable
+    if(info != NULL)
+    {
+        g_ParentExitCode = info->si_int;
+        return;
+    }
+
+    g_ParentExitCode = SIGNAL_EXIT_ERROR;
 }
 
 void check_signal()
@@ -173,6 +206,7 @@ void run_server(int baseSocket)
     {
         error = errno;
         syslog(LOG_ERR, "Can not open file for writing. Error:%d %s\n", error, strerror(error));
+        send_exit_signal_to_parent(GENERAL_ERROR);
         exit(GENERAL_ERROR);
     }
 
@@ -183,10 +217,13 @@ void run_server(int baseSocket)
     {
         error = errno;
         syslog(LOG_ERR, "Can not allocate buffer. Error:%d %s\n", error, strerror(error));
+        send_exit_signal_to_parent(GENERAL_ERROR);
         exit(GENERAL_ERROR);
     }
 
     g_Buffer = buff;
+
+    send_exit_signal_to_parent(EXIT_SUCCESS);
 
     while(1)
     {
@@ -337,6 +374,7 @@ void init_signals_logic()
     {
         error = errno;
         syslog(LOG_ERR, "Can not registry signal handlers. Error:%d %s\n", error, strerror(error));
+        send_exit_signal_to_parent(GENERAL_ERROR);
         exit(GENERAL_ERROR);
     }
 }
@@ -360,7 +398,7 @@ void init_demon(const int baseSocket)
     int pid = fork();
 
     if( pid < 0 )
-    {            
+    {
         error = errno;
         syslog(LOG_ERR, "Can not for fork. Error%d %s\n", error, strerror(error));
         exit(GENERAL_ERROR);
@@ -368,13 +406,14 @@ void init_demon(const int baseSocket)
 
     if( pid > 0 )
     {
-        exit(EXIT_SUCCESS);
+        return;
     }
 
     if( setsid() < 0 )
     {
         error = errno;
         syslog(LOG_ERR, "Can not set session id. Error:%d %s\n", error, strerror(error));
+        send_exit_signal_to_parent(GENERAL_ERROR);
         exit(GENERAL_ERROR);
     }
 
@@ -382,6 +421,7 @@ void init_demon(const int baseSocket)
     {
         error = errno;
         syslog(LOG_ERR, "Can not change dir to the root directory. Error:%d %s\n", error, strerror(error));
+        send_exit_signal_to_parent(GENERAL_ERROR);
         exit(GENERAL_ERROR);
     }
 
@@ -395,11 +435,12 @@ void init_demon(const int baseSocket)
     }
 
     int null = open("/dev/null", O_WRONLY);
-    
+
     if( null < 0 )
     {
         error = errno;
         syslog(LOG_ERR, "Can not open null device. Errro:%d %s\n", error, strerror(error));
+        send_exit_signal_to_parent(GENERAL_ERROR);
         exit(GENERAL_ERROR);
     }
 
@@ -409,6 +450,7 @@ void init_demon(const int baseSocket)
     {
         error = errno;
         syslog(LOG_ERR, "Can not redirect output to the null device. Error:%d %s", error, strerror(error));
+        send_exit_signal_to_parent(GENERAL_ERROR);
         exit(GENERAL_ERROR);
     }
 }
@@ -416,10 +458,22 @@ void init_demon(const int baseSocket)
 int main(int argc, char** argv)
 {
     int opt = getopt(argc, argv, "d");
- 
+
     if( opt == 'd')
     {
         openlog("aesdsocket", LOG_PID, LOG_DAEMON);
+
+        struct sigaction parent_quit_action;
+        parent_quit_action.sa_sigaction = handle_quit_signal_from_child;
+
+        if (sigaction(SIGQUIT, &parent_quit_action, NULL) != 0)
+        {
+            syslog(LOG_ERR, "Can not registry quit handler. Error:%d %s", errno, strerror(errno));
+            exit(GENERAL_ERROR);
+        }
+
+        g_ParentId = getpid();
+
     }
     else
     {
@@ -431,6 +485,14 @@ int main(int argc, char** argv)
     if( opt == 'd') //demon mode
     {
         init_demon(baseSocket);
+        if(g_ParentId == getpid())
+        {
+            //Parent thread must wait signal with return code from the child
+            syslog(LOG_INFO, "Start wait QUIT signal from the child process");
+            pause();
+            syslog(LOG_INFO, "Exit from the parent process with status code:%d", g_ParentExitCode);
+            exit(g_ParentExitCode);
+        }
     }
 
     if( atexit(exit_func) != 0)
