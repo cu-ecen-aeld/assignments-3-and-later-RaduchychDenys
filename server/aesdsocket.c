@@ -66,32 +66,36 @@ void check_signal()
     }
 }
 
-int packet_length(const char const * buff, const int buffsize)
+ssize_t packet_length(const char const * buff, const ssize_t buffsize, bool* isLast)
 {
     if( buffsize == 0 )
     {
         return 0;
     }
 
-    for(int i = 0; i < buffsize; i++)
+    for(ssize_t i = 0; i < buffsize; i++)
     {
         if( buff[i] == '\n' )
         {
+            *isLast = true;
             return i + 1;
         }
     }
 
-    return -1;
+    return buffsize;
 }
 
 clientStatus handle_client(const int clientSocket, char* buff, ssize_t buffsize, const int writeFile)
 {
         ssize_t len = -1;
         int error = 0;
+        bool isLast = false;
 
         while(1)
         {
             len = recv(clientSocket, buff, buffsize, 0);
+
+            syslog(LOG_INFO, "Readed packet with length:%ld", len);
 
             if( len < 0 )
             {
@@ -100,19 +104,34 @@ clientStatus handle_client(const int clientSocket, char* buff, ssize_t buffsize,
                 return SOCKET_ERROR_STATUS;
             }
 
-            const int packetLen = packet_length(buff, len);
+            const ssize_t packetLen = packet_length(buff, len, &isLast);
 
-            const int writeResult = write(writeFile, buff, packetLen == -1 ? buffsize : packetLen);
+            syslog(LOG_INFO, "Estimated packet length:%ld", packetLen);
 
-            if( writeResult < 0 )
+            const ssize_t writeResult = write(writeFile, buff, packetLen);
+
+            syslog(LOG_INFO, "Length of the data was written to the file:%ld", writeResult);
+
+            if( writeResult < 0 || writeResult != packetLen)
             {
                 error = errno;
                 syslog(LOG_ERR, "Can not write to the file. Error:%d %s\n", error, strerror(error));
                 return WRITE_ERROR_STATUS;
             }
 
-            if( packetLen != -1 )
+
+            if( isLast )
             {
+
+                error = fdatasync(writeFile);
+
+                if(error != 0 )
+                {
+                    error = errno;
+                    syslog(LOG_ERR, "Can not flush and sync file for writing. Error:%d %s\n", error, strerror(error));
+                    error = 0;
+                }
+
                 const int fileHandle = open(logFilePath, O_RDONLY);
                 ssize_t readResult = -1;
 
@@ -312,7 +331,7 @@ void init_signals_logic()
     sigemptyset(&actionTERM.sa_mask);
     actionTERM.sa_handler = handle_signal;
     actionTERM.sa_flags = 0;
-  
+
     if( sigaction(SIGINT, &actionINT, NULL) != 0 ||
         sigaction(SIGTERM, &actionTERM, NULL) != 0 )
     {
@@ -385,7 +404,7 @@ void init_demon(const int baseSocket)
     }
 
     if( dup2(null, 0 ) < 0 ||
-        dup2(null, 1) < 0 || 
+        dup2(null, 1) < 0 ||
         dup2(null, 2) < 0 )
     {
         error = errno;
