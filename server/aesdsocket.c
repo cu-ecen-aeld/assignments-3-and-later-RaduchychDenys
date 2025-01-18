@@ -23,7 +23,7 @@
     // return the full content of the  aesdsocketdata file to the client | Done
     // log message to the system log "Closed connection from X.X.X.X" | Done
     // accept connection until SIGINT and SIGTERM | Done
-    // done all sending operations and REMOVE file | Done 
+    // done all sending operations and REMOVE file | Done
     // log message "Caugth signal, exiting" in the system logs | Done
     // Modify your program to support a -d argument which runs the aesdsocket application as a daemon. | Done
     // When in daemon mode the program should fork after ensuring it can bind to port 9000.  | Done
