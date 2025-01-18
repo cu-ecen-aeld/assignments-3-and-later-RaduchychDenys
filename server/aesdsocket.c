@@ -56,6 +56,8 @@ int g_ParentExitCode = 0;
 
 void send_exit_signal_to_parent(int status)
 {
+    syslog(LOG_DEBUG, "Try to send exit signal with exit code %d to the parent", status);
+
     if(g_ParentId && getpid() != g_ParentId)
     {
         union sigval sigdata;
@@ -68,6 +70,10 @@ void send_exit_signal_to_parent(int status)
                 syslog(LOG_ERR, "Can not send kill signal to the parent process. Error:%d %s", errno, strerror(errno));
             }
         }
+    }
+    else
+    {
+        syslog(LOG_DEBUG, "Can not send exit status to the parent. Parent process doesn't exist or it was try from the single process mode");
     }
 }
 
