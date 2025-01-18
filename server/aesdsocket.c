@@ -52,7 +52,6 @@ int g_BaseSocket = -1;
 char* g_Buffer = NULL;
 
 pid_t g_ParentId = 0;
-int g_ParentExitCode = 0;
 
 void send_exit_signal_to_parent(int status)
 {
@@ -82,17 +81,6 @@ void handle_signal(const int signalNum)
     g_SignalNum = signalNum;
 }
 
-void handle_quit_signal_from_child(int signum, siginfo_t* info, void* data)
-{
-    //Exit from the process with the given return code that located in the data variable
-    if(info != NULL)
-    {
-        g_ParentExitCode = info->si_int;
-        return;
-    }
-
-    g_ParentExitCode = SIGNAL_EXIT_ERROR;
-}
 
 void check_signal()
 {
@@ -468,16 +456,6 @@ int main(int argc, char** argv)
     if( opt == 'd')
     {
         openlog("aesdsocket", LOG_PID, LOG_DAEMON);
-
-        struct sigaction parent_quit_action;
-        parent_quit_action.sa_sigaction = handle_quit_signal_from_child;
-
-        if (sigaction(SIGQUIT, &parent_quit_action, NULL) != 0)
-        {
-            syslog(LOG_ERR, "Can not registry quit handler. Error:%d %s", errno, strerror(errno));
-            exit(GENERAL_ERROR);
-        }
-
         g_ParentId = getpid();
 
     }
@@ -494,10 +472,24 @@ int main(int argc, char** argv)
         if(g_ParentId == getpid())
         {
             //Parent thread must wait signal with return code from the child
+            sigset_t mask;
+            siginfo_t siginfo;
+            int signum;
+
+            sigemptyset(&mask);
+            sigaddset(&mask, SIGQUIT);
+
             syslog(LOG_INFO, "Start wait QUIT signal from the child process");
-            pause();
-            syslog(LOG_INFO, "Exit from the parent process with status code:%d", g_ParentExitCode);
-            exit(g_ParentExitCode);
+            signum = sigwaitinfo(&mask, &siginfo);
+
+            if(signum < 0)
+            {
+                syslog(LOG_ERR, "The parent process got an error while wait quit signal. Can not wait signal. Error:%d %s", errno, strerror(errno));
+                return SIGNAL_EXIT_ERROR;
+            }
+
+            syslog(LOG_INFO, "Recieved signal:%d Exit from the parent process with status code:%d", signum,  siginfo.si_int );
+            exit(siginfo.si_int);
         }
     }
 
