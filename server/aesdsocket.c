@@ -211,7 +211,7 @@ void timestamp_callback(union sigval data)
         exit(CANNOT_LOCK_SAFE_FILE);        
     }
 
-    result = strftime(g_TimeStamp_Buffer, TIMESTAMP_BUFFER_SIZE, "%a, %d %b %Y %T %z\n", currenttime);
+    result = strftime(g_TimeStamp_Buffer, TIMESTAMP_BUFFER_SIZE, "timestamp:%a, %d %b %Y %T %z\n", currenttime);
 
     if(result <= 0)
     {
