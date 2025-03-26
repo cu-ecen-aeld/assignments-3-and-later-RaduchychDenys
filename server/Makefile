@@ -1,8 +1,11 @@
-
 .PHONY = rebuild clean
 
-all:safefile.o list.o aesdsocket.o 
-	$(CC) $(CFLAGS) aesdsocket.o safefile.o list.o -o aesdsocket
+ifneq ($(findstring -lpthread,$(LDFLAGS)), -lpthread)
+    LDFLAGS += -lpthread
+endif
+
+all:safefile.o list.o aesdsocket.o
+	$(CC) $(CFLAGS) $(LDFLAGS)  aesdsocket.o safefile.o list.o -o aesdsocket
 
 rebuild:clean all
 
@@ -12,8 +15,11 @@ aesdsocket.o:aesdsocket.c safefile.o list.o
 safe_file.o:safefile.c safefile.h
 	$(CC) $(CFLAGS) -c safefile.c -o safefile.o
 
-list.o:list.h list.c 
+list.o:list.h list.c
 	$(CC) $(CFLAGS) -c list.c -o list.o
+
+install:all
+	install -m 766 aesdsocket $(PREFIX)/bin/
 
 clean:
 	$(RM) *.o
