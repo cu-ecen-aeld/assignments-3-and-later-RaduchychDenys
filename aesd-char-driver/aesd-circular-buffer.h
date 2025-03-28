@@ -28,6 +28,8 @@ struct aesd_buffer_entry
      * Number of bytes stored in buffptr
      */
     size_t size;
+
+    size_t allocated;
 };
 
 struct aesd_circular_buffer
@@ -49,6 +51,8 @@ struct aesd_circular_buffer
      * set to true when the buffer entry structure is full
      */
     bool full;
+
+    bool empty;
 };
 
 extern struct aesd_buffer_entry *aesd_circular_buffer_find_entry_offset_for_fpos(struct aesd_circular_buffer *buffer,
