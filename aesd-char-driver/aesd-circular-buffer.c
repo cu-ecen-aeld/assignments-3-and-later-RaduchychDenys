@@ -10,6 +10,7 @@
 
 #ifdef __KERNEL__
 #include <linux/string.h>
+#include <linux/slab.h>
 #else
 #include <string.h>
 #include <stdlib.h>
@@ -29,14 +30,14 @@
     if(index >= AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED) \
     { \
         index = 0; \
-    } 
+    }
 
 #define buff_index_cycle_decrease(index) \
     index--; \
     if(index < 0 ) \
     { \
         index = AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED - 1; \
-    } 
+    }
 
 #define increase_begin_buff_index(buff) \
     buff_index_cycle_increase(buff_begin_index(buff)); \
@@ -47,14 +48,14 @@
     { \
         buff_end_index(buff) = 0; \
         buff->full = true; \
-    } 
+    }
 
-//# cell 
+//# cell
 //$ end
 //@ begin
 //# # # #
 
-//@ # # $ 3 - 0 = 3 increase 
+//@ # # $ 3 - 0 = 3 increase
 //$ @ # # 0 - 1 = -1 increase
 //# # $ @ 2 - 3 = -1 increase
 
@@ -74,16 +75,16 @@ struct aesd_buffer_entry *aesd_circular_buffer_find_entry_offset_for_fpos(struct
     int iterator = buff_begin_index(buffer);
 
     int accumulated_offset = 0;
-    
+
     int i = 0;
 
     while(i < AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED)
-    {        
+    {
         if(buff_entry_at(buffer, iterator).buffptr == NULL)
         {
             return NULL;
         }
-        
+
         if(char_offset >= accumulated_offset && char_offset < (accumulated_offset + buff_entry_at(buffer, iterator).size))
         {
             *entry_offset_byte_rtn = char_offset - accumulated_offset;
@@ -109,7 +110,7 @@ struct aesd_buffer_entry *aesd_circular_buffer_find_entry_offset_for_fpos(struct
 */
 void aesd_circular_buffer_add_entry(struct aesd_circular_buffer *buffer, const struct aesd_buffer_entry *add_entry)
 {
-    if(buffer == NULL || add_entry == NULL)   
+    if(buffer == NULL || add_entry == NULL)
     {
         return;
     }
@@ -119,7 +120,7 @@ void aesd_circular_buffer_add_entry(struct aesd_circular_buffer *buffer, const s
         buffer->empty = false;
     }
     else
-    {    
+    {
         increase_end_buff_index(buffer);
 
         if(buffer->full)
@@ -127,15 +128,25 @@ void aesd_circular_buffer_add_entry(struct aesd_circular_buffer *buffer, const s
             increase_begin_buff_index(buffer);
         }
     }
-    
+
     if(buff_end_entry(buffer).buffptr == NULL)
     {
-        buff_end_entry(buffer).buffptr = (const char*)malloc(add_entry->size);
+        buff_end_entry(buffer).buffptr = 
+#ifdef __KERNEL__
+        (const char*)kmalloc(add_entry->size, GFP_KERNEL);
+#else
+        (const char*)malloc(add_entry->size);
+#endif        
         buff_end_entry(buffer).allocated = add_entry->size;
     }
-    else if(buff_end_entry(buffer).allocated < add_entry->size) 
+    else if(buff_end_entry(buffer).allocated < add_entry->size)
     {
-        buff_end_entry(buffer).buffptr =(const char*)realloc((char*)buff_end_entry(buffer).buffptr, add_entry->size);      
+        buff_end_entry(buffer).buffptr = 
+#ifdef __KERNEL__
+        (const char*)krealloc((char*)buff_end_entry(buffer).buffptr, add_entry->size, GFP_KERNEL);
+#else        
+        (const char*)realloc((char*)buff_end_entry(buffer).buffptr, add_entry->size);
+#endif        
         buff_end_entry(buffer).allocated = add_entry->size;
     }
 

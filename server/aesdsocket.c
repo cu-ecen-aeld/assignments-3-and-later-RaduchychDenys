@@ -45,7 +45,11 @@
 
 #define FILE_HANDLE -1
 
+#ifdef USE_AESD_CHAR_DEVICE
+const char* logFilePath = "/dev/aesdchar";
+#else
 const char* logFilePath = "/var/tmp/aesdsocketdata";
+#endif
 
 typedef enum client_status_enum
 {
@@ -428,13 +432,15 @@ void server_exit()
         }
     }
 
+#ifndef USE_AESD_CHAR_DEVICE    
     if( (result = remove(logFilePath)) != 0)
     {
         syslog(LOG_ERR, "Can not remove logging file. Error:%d %s",
             errno, 
             strerror(errno));
     }
-    
+#endif //USE_AESD_CHAR_DEVICE
+
     if(pClientsList != NULL)
     {
         result = list_for_each(pClientsList, join_client_thread, NULL);
@@ -469,6 +475,8 @@ void run_server(int baseSocket)
         exit(GENERAL_ERROR);
     }
 
+#ifndef USE_AESD_CHAR_DEVICE 
+
     struct sigevent timestampevent = {
         .sigev_notify = SIGEV_THREAD,
         .sigev_notify_function = timestamp_callback        
@@ -494,6 +502,8 @@ void run_server(int baseSocket)
         server_exit();
         exit(CANNOT_CREATE_TIMER);
     }
+
+#endif //USE_AESD_CHAR_DEVICE
 
     if( (error = list_create(&pClientsList)) != LIST_SUCCESS )
     {

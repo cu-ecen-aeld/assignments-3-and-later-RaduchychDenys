@@ -8,6 +8,9 @@
 #ifndef AESD_CHAR_DRIVER_AESDCHAR_H_
 #define AESD_CHAR_DRIVER_AESDCHAR_H_
 
+#include "aesd-circular-buffer.h"
+#include <linux/rwsem.h> /* for rw_semaphore */
+
 #define AESD_DEBUG 1  //Remove comment on this line to enable debug
 
 #undef PDEBUG             /* undef it, just in case */
@@ -23,11 +26,10 @@
 #  define PDEBUG(fmt, args...) /* not debugging: nothing */
 #endif
 
-struct aesd_dev
-{
-    /**
-     * TODO: Add structure(s) and locks needed to complete assignment requirements
-     */
+struct aesd_dev {
+    struct aesd_buffer_entry cache;
+    struct aesd_circular_buffer circular_buffer;
+    struct rw_semaphore rwsem; /* read/write lock: multiple readers, single writer */
     struct cdev cdev;     /* Char device structure      */
 };
 
