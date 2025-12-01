@@ -5,7 +5,7 @@ ifneq ($(findstring -lpthread,$(LDFLAGS)), -lpthread)
 endif
 
 all:safefile.o list.o
-	$(CC) $(CFLAGS) $(LDFLAGS) -DUSE_AESD_CHAR_DEVICE  aesdsocket.c safefile.o list.o -o aesdsocket
+	$(CC) $(CFLAGS) $(LDFLAGS) -DUSE_AESD_CHAR_DEVICE -I../aesd-char-driver/ aesdsocket.c safefile.o list.o -o aesdsocket
 
 rebuild:clean all
 

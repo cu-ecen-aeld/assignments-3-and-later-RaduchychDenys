@@ -17,9 +17,14 @@
 #include <stdbool.h>
 #include <stdatomic.h>
 #include <assert.h>
+#include <stdint.h>
 
 #include "safefile.h"
 #include "list.h"
+
+#ifdef USE_AESD_CHAR_DEVICE
+#include "aesd_ioctl.h"
+#endif
 
     // open stream socket on port 9000 | Done
     // return 1 if something is wrong | Done
@@ -302,7 +307,6 @@ bool sendcallback(const ssize_t readed, const char* const buff, const size_t buf
     return true;
 }
 
-
 void* handle_client(void* arg)
 {
     client_data_t* client = (client_data_t*)arg;
@@ -332,69 +336,90 @@ void* handle_client(void* arg)
             return NULL;
         }
 
-        const ssize_t packetLen = packet_length(client->buff, len, &isLast);
+        read_range_t range = {
+            .start = {
+                .whence = SEEK_SET,
+                .offset = 0
+            },
 
-        if(packetLen != 0)
-        {
-            syslog(LOG_INFO, "Estimated packet length:%ld", packetLen);
-
-            error = safe_file_seek_and_write(client->file, SEEK_END, 0, client->buff, len);
-
-            if( error != 0)
-            {
-                syslog(LOG_ERR, "Can not write to the file. Error:%d %s\n", error, safe_file_get_error_string(error));
-                shutdown(client->socket, SHUT_RDWR);
-                close(client->socket);
-                syslog(LOG_INFO, "Closed connection from %s", client->client_ip_addr_string);
-                atomic_store_explicit(&client->client_status, CLIENT_WRITE_ERROR_STATUS, memory_order_release);
-                return NULL;
+            .end = {
+                .whence = SEEK_END,
+                .offset = 0
             }
+        };
 
-            syslog(LOG_INFO, "Length of the data had been written to the file:%ld", packetLen);
-        }
-
-        if( isLast )
+#ifdef USE_AESD_CHAR_DEVICE        
+        struct aesd_seekto seekto = {0,0};
+        int matched = sscanf(client->buff, "AESDCHAR_IOCSEEKTO:%d,%d\n", &seekto.write_cmd, &seekto.write_cmd_offset);
+        syslog(LOG_INFO, "Scanned seek command, matched items:%d", matched);
+        if(matched == 2)
         {
-            error = safe_file_sync(client->file);
-
-            if(error != 0)
+            const int file_fd = safe_file_get_fd(client->file);
+            if ( 0 != ioctl(file_fd, AESDCHAR_IOCSEEKTO, (unsigned long)&seekto))
             {
-                syslog(LOG_ERR, "Can not flush and sync file for writing. Error:%d %s\n", error, strerror(error));
-                error = 0;
+                syslog(LOG_ERR, "Can not process seek command from a client. Error:%d %s\n", errno, strerror(errno));
                 errno = 0;
             }
+            syslog(LOG_INFO, "Processed seek command: write_cmd=%d, write_cmd_offset=%d", seekto.write_cmd, seekto.write_cmd_offset);
+            range.start.whence = SEEK_CUR;
+            range.start.offset = 0;
+        }
+        else
+#endif
 
-            read_range_t range = {
-                .start = {
-                    .whence = SEEK_SET,
-                    .offset = 0
-                },
+        {
+            const ssize_t packetLen = packet_length(client->buff, len, &isLast);
 
-                .end = {
-                    .whence = SEEK_END,
-                    .offset = 0
-                }
-            };
-
-            read_params_t param;
-            param.num = client->socket;
-
-            error = safe_file_read_range(client->file, &range, client->buff, CLIENT_BUFFER_SIZE, &param, &sendcallback );
-
-            shutdown(client->socket, SHUT_RDWR);
-            close(client->socket);
-            syslog(LOG_INFO, "Closed connection from %s", client->client_ip_addr_string);
-
-            if( error != 0)
+            if(packetLen != 0)
             {
-                syslog(LOG_ERR, "Can not read from the file and send to a client. Error:%d %s\n", error, safe_file_get_error_string(error));
+                syslog(LOG_INFO, "Estimated packet length:%ld", packetLen);
+
+                error = safe_file_seek_and_write(client->file, SEEK_END, 0, client->buff, len);
+
+                if( error != 0)
+                {
+                    syslog(LOG_ERR, "Can not write to the file. Error:%d %s\n", error, safe_file_get_error_string(error));
+                    shutdown(client->socket, SHUT_RDWR);
+                    close(client->socket);
+                    syslog(LOG_INFO, "Closed connection from %s", client->client_ip_addr_string);
+                    atomic_store_explicit(&client->client_status, CLIENT_WRITE_ERROR_STATUS, memory_order_release);
+                    return NULL;
+                }
+
+                syslog(LOG_INFO, "Length of the data had been written to the file:%ld", packetLen);
+            }
+
+            if( isLast )
+            {
+                error = safe_file_sync(client->file);
+
+                if(error != 0)
+                {
+                    syslog(LOG_ERR, "Can not flush and sync file for writing. Error:%d %s\n", error, strerror(error));
+                    error = 0;
+                    errno = 0;
+                }
+            }
+        }
+
+        read_params_t param;
+        param.num = client->socket;
+
+        error = safe_file_read_range(client->file, &range, client->buff, CLIENT_BUFFER_SIZE, &param, &sendcallback );
+
+        shutdown(client->socket, SHUT_RDWR);
+        close(client->socket);
+        syslog(LOG_INFO, "Closed connection from %s", client->client_ip_addr_string);
+
+        if( error != 0)
+        {
+            syslog(LOG_ERR, "Can not read from the file and send to a client. Error:%d %s\n", error, safe_file_get_error_string(error));
                 atomic_store_explicit(&client->client_status, CLIENT_READ_FILE_ERROR_STATUS, memory_order_release);
                 return NULL;
-            }
-            
-            atomic_store_explicit(&client->client_status, CLIENT_SUCCESS_STATUS, memory_order_release);
-            return NULL;
         }
+            
+        atomic_store_explicit(&client->client_status, CLIENT_SUCCESS_STATUS, memory_order_release);
+        return NULL;
     }
 
     atomic_store_explicit(&client->client_status, CLIENT_SUCCESS_STATUS, memory_order_release);
@@ -451,7 +476,7 @@ void server_exit()
                 result,
                 list_get_error_string(result));
         }
-        
+
         if( (result = list_delete(&pClientsList)) != LIST_SUCCESS)
         {
             syslog(LOG_ERR, "Can not delete safelist. Error:%d %s", 

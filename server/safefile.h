@@ -88,4 +88,6 @@ int safe_file_read_range(safe_file* file,
 
 const char* const safe_file_get_error_string(int error);
 
+int safe_file_get_fd(safe_file* file);
+
 #endif

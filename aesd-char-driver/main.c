@@ -55,7 +55,7 @@ ssize_t aesd_read(struct file *filpaesd_device, char __user *buf, size_t count,
     size_t bytes_to_copy = 0;
     int return_code = 0;
 
-    PDEBUG("read %zu bytes with offset %lld",count,*f_pos);
+    PDEBUG("read %zu bytes with offset %lld", count, *f_pos);
 
     if(NULL == filpaesd_device->private_data)
     {
@@ -97,7 +97,7 @@ unlock_device:
     return return_code;
 }
 
-int add_to_cache(struct aesd_dev* pdevice, const char __user *buf, size_t count)
+int add_to_cache(struct aesd_dev* pdevice, const char __user *buf, size_t count, loff_t *f_pos)
 {
     int error_code = 0;
     char* new_buff = NULL;
@@ -138,11 +138,12 @@ int add_to_cache(struct aesd_dev* pdevice, const char __user *buf, size_t count)
 
 out_unlock:
     up_write(&pdevice->rwsem);
+    *f_pos += count;
 
     return error_code;
 }
 
-int write_with_cache(struct aesd_dev* pdevice, const char __user *buf, size_t count)
+int write_with_cache(struct aesd_dev* pdevice, const char __user *buf, size_t count, loff_t *f_pos)
 {
     struct aesd_buffer_entry buf_entry;
     size_t total_size = 0;
@@ -189,6 +190,7 @@ int write_with_cache(struct aesd_dev* pdevice, const char __user *buf, size_t co
 out_unlock:
     up_write(&pdevice->rwsem);
 
+    *f_pos += buf_entry.size;
     return return_code;
 }
 
@@ -245,7 +247,7 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
     {
         if('\n' == *current_position )
         {
-            error_code = write_with_cache(pdevice, begin_position, (current_position + 1) - begin_position);
+            error_code = write_with_cache(pdevice, begin_position, (current_position + 1) - begin_position, f_pos);
             if(0 != error_code)
             {
                 goto free_user_buff;
@@ -258,7 +260,7 @@ ssize_t aesd_write(struct file *filp, const char __user *buf, size_t count,
 
     if(begin_position != end_position)
     {
-        error_code = add_to_cache(pdevice, begin_position, end_position - begin_position);
+        error_code = add_to_cache(pdevice, begin_position, end_position - begin_position, f_pos);
     }
 
 free_user_buff:
@@ -277,13 +279,11 @@ loff_t aesd_llseek(struct file *filp, loff_t offset, int whence)
 
     pdevice = (struct aesd_dev*)filp->private_data;
 
-    down_read(&pdevice->rwsem);
+    down_write(&pdevice->rwsem);
 
     AESD_CIRCULAR_BUFFER_FOREACH(entry, &pdevice->circular_buffer, index) {
         total_size += entry->size;
     }
-
-    up_read(&pdevice->rwsem);
 
     switch (whence) {
     case SEEK_SET:
@@ -293,17 +293,102 @@ loff_t aesd_llseek(struct file *filp, loff_t offset, int whence)
         newpos = (filp->f_pos + offset) > total_size ? -EINVAL : (filp->f_pos + offset);
         break;
     case SEEK_END:
-        newpos = offset > total_size ? -EINVAL : (total_size - offset);
+        newpos = (total_size + offset) > total_size ? -EINVAL : (total_size + offset);
         break;
     default:
-        return -EINVAL;
+        newpos = -EINVAL;
+        goto out_unlock;
     }
 
     if (newpos < 0)
-        return -EINVAL;
+    {
+        newpos = -EINVAL;
+        goto out_unlock;
+    }
 
     filp->f_pos = newpos;
+
+    PDEBUG("llseek to offset: %lld, whence: %d result in offset: %ldd", offset, whence, newpos);
+
+out_unlock:
+    up_write(&pdevice->rwsem);
+
     return newpos;
+}
+
+int aesd_adjust_file_offset (struct file *filp, const uint32_t write_cmd, const uint32_t write_cmd_offset)
+{
+    loff_t fpos = 0;
+    size_t index = 0;
+    int error = 0;
+    struct aesd_buffer_entry* entry = NULL;
+    struct aesd_dev* pdevice = NULL;    
+
+    if(write_cmd >= AESDCHAR_MAX_WRITE_OPERATIONS_SUPPORTED)
+    {
+        return -EINVAL;
+    }
+
+    pdevice = (struct aesd_dev*)filp->private_data;
+
+    down_write(&pdevice->rwsem);
+
+    AESD_CIRCULAR_BUFFER_FOREACH(entry, &pdevice->circular_buffer, index) {
+        if(write_cmd == index)
+        {
+            if(write_cmd_offset >= entry->size)
+            {
+                error = -EINVAL;
+                goto out_unlock;
+            }
+
+            fpos += write_cmd_offset;
+            break;
+        }
+
+        fpos += entry->size;
+    }
+
+    PDEBUG("Adjust file offset to write_cmd: %u, write_cmd_offset: %u resulting in fpos: %lld", write_cmd, write_cmd_offset, fpos);
+    filp->f_pos = fpos;
+
+out_unlock:
+    up_write(&pdevice->rwsem);
+
+    return error;
+}
+
+long aesd_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
+{
+    int retval = 0;
+
+    struct aesd_seekto seekto;
+
+    // if (_IOC_TYPE(cmd) != AESD_IOC_MAGIC) {
+    //     return -ENOTTY;
+    // }
+
+    // if( _IOC_NR(cmd) > AESDCHAR_IOC_MAXNR ) {
+    //     return -ENOTTY;
+    // }
+
+    switch (cmd) {
+    case AESDCHAR_IOCSEEKTO: 
+    {
+        if (copy_from_user(&seekto, (const void __user *)arg, sizeof(seekto))) {
+            retval = -EFAULT;
+            break;
+        }
+
+        retval = aesd_adjust_file_offset(filp, seekto.write_cmd, seekto.write_cmd_offset);
+        break;
+    }
+    default:
+        retval = -ENOTTY;
+        break;
+    }
+
+    return retval;
 }
 
 struct file_operations aesd_fops = {
@@ -313,6 +398,8 @@ struct file_operations aesd_fops = {
     .open =     aesd_open,
     .release =  aesd_release,
     .llseek =   aesd_llseek,
+    .compat_ioctl = aesd_ioctl,
+    .unlocked_ioctl = aesd_ioctl,
 };
 
 static int aesd_setup_cdev(struct aesd_dev *dev)

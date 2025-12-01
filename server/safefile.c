@@ -365,13 +365,24 @@ int safe_file_read_range(safe_file* file,
     }
     
     off_t start_position = 0, end_position = 0;
-
-    if(safe_file_seek(file, range->end.whence, range->end.offset, &end_position) == false || 
-       safe_file_seek(file, range->start.whence, range->start.offset, &start_position) == false)
+    int error = 0;
+    
+    if(false ==safe_file_seek(file, range->start.whence, range->start.offset, &start_position))
     {
-        int error = file->err;
-        safe_file_unlock(file);
-        return error;
+        error = file->err;
+        goto out_unlock;
+    }
+
+    if(false == safe_file_seek(file, range->end.whence, range->end.offset, &end_position))
+    {
+        error = file->err;
+        goto out_unlock;    
+    }
+
+    if( false == safe_file_seek(file, SEEK_SET, start_position, NULL))
+    {        
+        error = file->err;
+        goto out_unlock;
     }
 
     ssize_t bytes_to_read_total = end_position - start_position;    
@@ -390,25 +401,25 @@ int safe_file_read_range(safe_file* file,
         if(result < 0)
         {
             SAVE_ERRNO(file);
-            int error = file->err;
-            safe_file_unlock(file);
-            return error;
+            error = file->err;
+            goto out_unlock;
         }
 
         readed_bytes += result;
 
         if(!callback(result, buff, buffsize, params))
         {
-            safe_file_unlock(file);
-            return SF_CALLBACK_HAS_RETURNED_FALSE_STATUS;
+            error = SF_CALLBACK_HAS_RETURNED_FALSE_STATUS;
+            goto out_unlock;
         }
         
     } 
     while(readed_bytes < bytes_to_read_total);    
 
+out_unlock:
     safe_file_unlock(file);
 
-    return SF_SUCCESS;
+    return error;
 }
 
 
@@ -518,4 +529,21 @@ int safe_file_sync(safe_file* file)
     }
 
     return SF_SUCCESS;
+}
+
+int safe_file_get_fd(safe_file* file)
+{
+    if(file == NULL)
+    {
+        perror("Safe file is NULL");
+        return SF_SAFE_FILE_NULL_ERR;
+    }
+
+    if(file->handle == INVALID_FILE_HANDLE)
+    {
+        SAVE_CERROR(file, SF_INVALID_FILE_HANDLE_ERR);
+        return SF_INVALID_FILE_HANDLE_ERR;
+    }
+
+    return file->handle;
 }
