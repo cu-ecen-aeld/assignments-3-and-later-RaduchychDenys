@@ -17,7 +17,10 @@
 #include <linux/types.h>
 #include <linux/cdev.h>
 #include <linux/fs.h> // file_operations
+
 #include "aesdchar.h"
+#include "aesd_ioctl.h"
+
 int aesd_major =   0; // use dynamic major
 int aesd_minor =   0;
 
@@ -27,7 +30,7 @@ MODULE_LICENSE("Dual BSD/GPL");
 struct aesd_dev aesd_device;
 
 int aesd_open(struct inode *inode, struct file *filp)
-{    
+{
     PDEBUG("open");
     filp->private_data = &aesd_device;
 
