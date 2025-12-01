@@ -463,18 +463,7 @@ void server_exit()
 
 void run_server(int baseSocket)
 {
-    int error = safe_file_init(logFilePath, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH, &g_loggingFile );
-
-    if(error != SF_SUCCESS)
-    {
-        const char* errorstring = NULL;
-        int error = safe_file_get_error(g_loggingFile, &errorstring);
-        syslog(LOG_ERR, "Can not open file. Error:%d %s", error, errorstring == NULL? "NULL" : errorstring);
-        send_exit_signal_to_parent(GENERAL_ERROR);
-        server_exit();
-        exit(GENERAL_ERROR);
-    }
-
+    int error = 0;
 #ifndef USE_AESD_CHAR_DEVICE 
 
     struct sigevent timestampevent = {
@@ -554,6 +543,21 @@ void run_server(int baseSocket)
             syslog(LOG_ERR, "Can not accept client. Error:%d %s\n", error, strerror(error));
             //return GENERAL_ERROR;
             continue;
+        }
+
+        if (g_loggingFile == NULL)
+        {
+            int error = safe_file_init(logFilePath, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH, &g_loggingFile );
+
+            if(error != SF_SUCCESS)
+            {
+                const char* errorstring = NULL;
+                int error = safe_file_get_error(g_loggingFile, &errorstring);
+                syslog(LOG_ERR, "Can not open file. Error:%d %s", error, errorstring == NULL? "NULL" : errorstring);
+                send_exit_signal_to_parent(GENERAL_ERROR);
+                server_exit();
+                exit(GENERAL_ERROR);
+            }
         }
 
         client_init_params_t client_init_params = {
