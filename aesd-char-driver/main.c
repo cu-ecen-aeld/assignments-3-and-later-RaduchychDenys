@@ -263,12 +263,53 @@ free_user_buff:
 
     return error_code == 0 ? count : error_code;
 }
+
+loff_t aesd_llseek(struct file *filp, loff_t offset, int whence)
+{
+    loff_t newpos = 0;
+    struct aesd_dev* pdevice = NULL;
+    size_t total_size = 0;
+    int index = 0;
+    struct aesd_buffer_entry* entry = NULL;
+
+    pdevice = (struct aesd_dev*)filp->private_data;
+
+    down_read(&pdevice->rwsem);
+
+    AESD_CIRCULAR_BUFFER_FOREACH(entry, &pdevice->circular_buffer, index) {
+        total_size += entry->size;
+    }
+
+    up_read(&pdevice->rwsem);
+
+    switch (whence) {
+    case SEEK_SET:
+        newpos = offset > total_size ? -EINVAL : offset;
+        break;
+    case SEEK_CUR:
+        newpos = (filp->f_pos + offset) > total_size ? -EINVAL : (filp->f_pos + offset);
+        break;
+    case SEEK_END:
+        newpos = offset > total_size ? -EINVAL : (total_size - offset);
+        break;
+    default:
+        return -EINVAL;
+    }
+
+    if (newpos < 0)
+        return -EINVAL;
+
+    filp->f_pos = newpos;
+    return newpos;
+}
+
 struct file_operations aesd_fops = {
     .owner =    THIS_MODULE,
     .read =     aesd_read,
     .write =    aesd_write,
     .open =     aesd_open,
     .release =  aesd_release,
+    .llseek =   aesd_llseek,
 };
 
 static int aesd_setup_cdev(struct aesd_dev *dev)

@@ -4,13 +4,10 @@ ifneq ($(findstring -lpthread,$(LDFLAGS)), -lpthread)
     LDFLAGS += -lpthread
 endif
 
-all:safefile.o list.o aesdsocket.o
-	$(CC) $(CFLAGS) $(LDFLAGS)  aesdsocket.o safefile.o list.o -o aesdsocket
+all:safefile.o list.o
+	$(CC) $(CFLAGS) $(LDFLAGS) -DUSE_AESD_CHAR_DEVICE  aesdsocket.c safefile.o list.o -o aesdsocket
 
 rebuild:clean all
-
-aesdsocket.o:aesdsocket.c safefile.o list.o
-	$(CC) $(CFLAGS) -c aesdsocket.c -o aesdsocket.o
 
 safe_file.o:safefile.c safefile.h
 	$(CC) $(CFLAGS) -c safefile.c -o safefile.o
